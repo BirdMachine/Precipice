@@ -18,12 +18,11 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
@@ -42,7 +41,6 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.foundation.text.BasicText
 import com.builditcode.glass.BackdropFilter
 import com.builditcode.glass.LocalBackdropLayerManager
 import com.builditcode.glass.glassBorder
@@ -57,9 +55,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        setContent {
-            PrecipiceApp()
-        }
+        setContent { PrecipiceApp() }
     }
 }
 
@@ -102,9 +98,7 @@ private fun PrecipiceApp() {
                 )
 
                 Spacer(Modifier.height(44.dp))
-
                 PrecipiceGlassOrb()
-
                 Spacer(Modifier.height(34.dp))
 
                 BasicText(
@@ -159,11 +153,7 @@ private fun AmbientWorld(modifier: Modifier = Modifier) {
         val h = size.height
         val phase = t * 6.283185f
 
-        fun glow(
-            center: Offset,
-            radius: Float,
-            color: Color,
-        ) {
+        fun glow(center: Offset, radius: Float, color: Color) {
             drawCircle(
                 brush = Brush.radialGradient(
                     colors = listOf(color, Color.Transparent),
@@ -234,10 +224,13 @@ private fun PrecipiceGlassOrb() {
         label = "orb-awakened",
     )
 
+    // v0.2.5 expresses its glass geometry as a corner radius rather than a Shape.
+    // Half the 228dp diameter makes the AGSL lens itself circular; Compose still clips
+    // the capture to CircleShape below.
     val glass = remember {
         BackdropFilter.Glass(
-            shape = CircleShape,
             blurRadiusIntensity = 1.6f,
+            cornerRadiusDp = 114f,
             refraction = 0.24f,
             dispersion = 0.19f,
             edge = 0.30f,
