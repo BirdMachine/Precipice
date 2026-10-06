@@ -29,33 +29,28 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.6.0'
-      - name: Compile and lint without secrets
-        run: gradle :app:testDebugUnitTest :app:assembleDebug :app:lintDebug --stacktrace
-      - name: Upload unsigned PR compile check
-        if: github.event_name == 'pull_request'
-        uses: actions/upload-artifact@v4
-        with:
-          name: precipice-unsigned-compile-check
-          path: app/build/outputs/apk/debug/app-debug-unsigned.apk
-          if-no-files-found: error
-      - name: Load the fixed private test signer
-        if: github.event_name != 'pull_request'
-        env:
-          SIGNING_RECORD: ${{ secrets.PRECIPICE_TEST_SIGNING }}
-        run: python3 scripts/restore-ci-signing.py
-      - name: Build installable APK
-        if: github.event_name != 'pull_request'
-        run: gradle :app:assembleDebug --stacktrace
-      - name: Verify fixed certificate and package
-        if: github.event_name != 'pull_request'
+      - name: Restore stable development signer
+        run: |
+          mkdir -p .signing
+          base64 -d .github/precipice-debug.keystore.b64 > .signing/precipice-debug.p12
+          cat > .signing/signing.properties <<'EOF'
+          PRECIPICE_KEYSTORE=.signing/precipice-debug.p12
+          PRECIPICE_STORE_PASSWORD=precipice-debug
+          PRECIPICE_KEY_PASSWORD=precipice-debug
+          PRECIPICE_KEY_ALIAS=precipice-debug
+          EOF
+      - name: Build, test and lint
+        run: |
+          VERSION_CODE=$((400000 + GITHUB_RUN_NUMBER))
+          gradle :app:testDebugUnitTest :app:assembleDebug :app:lintDebug -PprecipiceVersionCode="$VERSION_CODE" --stacktrace
+      - name: Verify stable certificate and package
         run: scripts/verify-apk.sh app/build/outputs/apk/debug/app-debug.apk "$ANDROID_SDK_ROOT/build-tools/37.0.0"
-      - name: Upload verified APK
-        if: github.event_name != 'pull_request'
+      - name: Upload installable APK
         uses: actions/upload-artifact@v4
         with:
           name: precipice-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
-      - name: Remove private signing material
+      - name: Remove reconstructed signing material
         if: always()
         run: rm -rf .signing
