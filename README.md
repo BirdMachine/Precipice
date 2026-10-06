@@ -1,34 +1,27 @@
 # Precipice
 
-> The side of the seam.
+Android voice and avatar shell for Birdie, with ChatGPT as the interim assistant while Brill is built. Package: `dev.birdmachine.precipice`. Brill remains a separate future identity.
 
-Precipice is the first Android vessel for Brill: a deliberately small, provider-swappable voice shell built to exist before it grows up.
+Version 0.2 includes the recovered white/lilac catgirl maid as a layered paper doll: neutral bust, blink eyes, speaking mouth, breathing and listening/thinking tilt. The glass orb remains selectable on Android 13+. The asset manifest records canvas coordinates; this is a first expression pack, not a full Live2D rig.
 
-## v0 visual direction
+Tap Talk to listen, tap Finish to send, or type a message. Stop interrupts speech or discards a pending reply. Phone speech recognition prefers Android's on-device service; the fallback is labelled as potentially using network. Speech output requires an installed offline English TTS voice. Settings includes expression previews and voice speed.
 
-The first living object is a mostly-transparent refractive orb. It samples a moving color field behind itself, bends that world through glass, and uses chromatic dispersion for delicious RGB edge fringing. The glass layer is intentionally wrapped behind Precipice-owned composables so we can swap rendering libraries later without rewriting the app.
+Controls and the scrollable settings panel stay in the upper two thirds for Kestrel's damaged display.
 
-Current experiment:
+## ChatGPT connection
 
-- Jetpack Compose, no Material UI components
-- `BuildItCode/LiquidGlass` for live refraction / RGB dispersion on API 33+
-- custom `PrecipiceGlassOrb` abstraction
-- animated ambient backdrop
-- touch squish + breathing/speaking deformation hooks
-- controls kept above the lower screen danger-zone on Kestrel
+Settings → Continue with ChatGPT opens the system browser using OpenAI's local-project authorization contract: loopback callback, PKCE, state/nonce, signed identity validation, encrypted Android Keystore token storage, refresh and disconnect. Select a model returned for the connected plan, then talk. Manage usage opens ChatGPT settings.
 
-## Build
+The shell keeps only this session's turns in memory and accepts streamed replies only after completion. Existing ChatGPT chats, memories and connected apps are not imported. Sign-in and actual plan inference still need a test on Kestrel; no account credentials are included in builds.
 
-Current toolchain targets Android API 37 with AGP 9.4 / Gradle 9.6 and JDK 17.
+## Build and signing
 
-Open in Android Studio, or run with a local Gradle 9.6 install:
+Android API 37, AGP 9.4, Gradle 9.6, JDK 17. Run:
 
-```bash
-gradle :app:assembleDebug
+```sh
+gradle :app:testDebugUnitTest :app:assembleDebug :app:lintDebug
 ```
 
-GitHub Actions also builds a debug APK on every push.
+An installable build requires the persistent test key; otherwise compilation produces an unsigned APK. See [signing setup](docs/SIGNING.md). CI verifies the pinned public certificate before uploading an APK and refuses to publish when the private signing secret is absent. Never commit the private key.
 
-## Principle
-
-First make the weird little blob exist. Then teach it to plorp. 🫧🌈
+The old September CI debug certificate differs. A phone with that old build may need one migration uninstall; APKs using the new persistent key can update in place afterward.

@@ -1,294 +1,204 @@
 package dev.birdmachine.precipice
 
+import android.Manifest
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.builditcode.glass.BackdropFilter
+import androidx.lifecycle.ViewModelProvider
 import com.builditcode.glass.LocalBackdropLayerManager
-import com.builditcode.glass.glassBorder
-import com.builditcode.glass.layeredBackdropCapture
 import com.builditcode.glass.layeredBackdropSource
 import com.builditcode.glass.rememberBackdropManager
-import kotlin.math.sin
-
-private const val BackdropLayer = "precipice-ambient"
+import kotlinx.coroutines.delay
+import kotlin.random.Random
 
 class MainActivity : ComponentActivity() {
+    private lateinit var shell: ShellModel
+    private val microphonePermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) shell.startListening() else shell.fail("Microphone permission declined. You can still type a message.")
+    }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        setContent { PrecipiceApp() }
+        shell = ViewModelProvider(this)[ShellModel::class.java]
+        setContent { PrecipiceApp(shell, ::talk) { url ->
+            runCatching { startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url))) }
+                .onFailure { shell.cancelSignIn(); shell.fail("No browser could open this link.") }
+        } }
     }
+    private fun talk() {
+        when (shell.state) {
+            AvatarState.Listening -> shell.finishListening()
+            AvatarState.Speaking, AvatarState.Thinking -> shell.stop()
+            else -> if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) shell.startListening()
+                else microphonePermission.launch(Manifest.permission.RECORD_AUDIO)
+        }
+    }
+    override fun onStop() { shell.pauseAudio(); super.onStop() }
 }
 
+private val ink = Color(0xFFF2EFFF)
+private val accent = Color(0xFFE4AAED)
+private val smallText = TextStyle(color = ink, fontSize = 13.sp, fontFamily = FontFamily.SansSerif)
+
 @Composable
-private fun PrecipiceApp() {
-    val backdropManager = rememberBackdropManager(
-        defaultScaleFactor = 0.55f,
-        defaultDebounceMs = 16L,
-    )
-
-    CompositionLocalProvider(LocalBackdropLayerManager provides backdropManager) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color(0xFF060711)),
-        ) {
-            AmbientWorld(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .layeredBackdropSource(BackdropLayer),
-            )
-
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 28.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Spacer(Modifier.height(72.dp))
-
-                BasicText(
-                    text = "PRECIPICE",
-                    style = TextStyle(
-                        color = Color.White.copy(alpha = 0.46f),
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        fontFamily = FontFamily.Monospace,
-                        letterSpacing = 4.sp,
-                    ),
-                )
-
-                Spacer(Modifier.height(44.dp))
-                PrecipiceGlassOrb()
-                Spacer(Modifier.height(34.dp))
-
-                BasicText(
-                    text = "touch the lens",
-                    style = TextStyle(
-                        color = Color.White.copy(alpha = 0.58f),
-                        fontSize = 14.sp,
-                        fontFamily = FontFamily.Monospace,
-                    ),
-                )
-
-                Spacer(Modifier.height(18.dp))
-
-                BasicText(
-                    text = "the side of the seam",
-                    style = TextStyle(
-                        color = Color.White.copy(alpha = 0.28f),
-                        fontSize = 12.sp,
-                        fontFamily = FontFamily.Monospace,
-                    ),
-                )
+private fun PrecipiceApp(shell: ShellModel, talk: () -> Unit, openBrowser: (String) -> Unit) {
+    var settings by remember { mutableStateOf(false) }
+    var text by remember { mutableStateOf("") }
+    val backdrop = rememberBackdropManager(defaultScaleFactor = 0.45f, defaultDebounceMs = 32L)
+    CompositionLocalProvider(LocalBackdropLayerManager provides backdrop) {
+        BoxWithConstraints(Modifier.fillMaxSize().background(Color(0xFF060711))) {
+            AmbientWorld(Modifier.fillMaxSize().layeredBackdropSource("precipice-ambient"))
+            // All interactive controls, including settings, stay above Kestrel's damaged lower third.
+            val safeHeight = maxHeight * 0.66f
+            Column(Modifier.widthIn(max = 600.dp).fillMaxWidth().height(safeHeight).align(Alignment.TopCenter)
+                .padding(top = 30.dp, start = 18.dp, end = 18.dp, bottom = 8.dp)) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                    BasicText("PRECIPICE", style = smallText.copy(letterSpacing = 3.sp, color = accent))
+                    Pill(if (settings) "Back" else "Settings") { settings = !settings }
+                }
+                Spacer(Modifier.height(8.dp))
+                if (settings) SettingsPanel(shell, openBrowser, Modifier.weight(1f))
+                else {
+                    Box(Modifier.fillMaxWidth().weight(1f).clip(RoundedCornerShape(30.dp)).clickable(role = Role.Button, onClickLabel = "Talk or stop", onClick = talk)
+                        .semantics { contentDescription = "${shell.state.name} avatar. Tap to talk or stop." }, contentAlignment = Alignment.Center) {
+                        if (shell.showMaid) PaperDoll(shell.state, Modifier.fillMaxHeight().aspectRatio(2f / 3f))
+                        else if (Build.VERSION.SDK_INT >= 33) PrecipiceGlassOrb(shell.state, talk)
+                        else Canvas(Modifier.size(160.dp)) { drawCircle(accent.copy(alpha = 0.35f)) }
+                    }
+                    BasicText(shell.status, style = smallText.copy(color = if (shell.state == AvatarState.Error) Color(0xFFFFC1D5) else ink), maxLines = 3)
+                    Spacer(Modifier.height(7.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Pill(when(shell.state) { AvatarState.Listening -> "Finish"; AvatarState.Speaking, AvatarState.Thinking -> "Stop"; else -> "Talk" }, enabled = !shell.connecting, action = talk)
+                        Pill(if (shell.showMaid) "Orb" else "Maid", action = shell::toggleAvatar)
+                        Pill("Preview") { settings = true }
+                    }
+                    Spacer(Modifier.height(7.dp))
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp), verticalAlignment = Alignment.CenterVertically) {
+                        BasicTextField(text, { text = it }, textStyle = smallText,
+                            modifier = Modifier.weight(1f).background(Color.White.copy(alpha = 0.08f), RoundedCornerShape(16.dp)).padding(11.dp)
+                                .semantics { contentDescription = "Type a message" }, singleLine = true,
+                            decorationBox = { inner -> if (text.isEmpty()) BasicText("Type a message…", style = smallText.copy(color = ink.copy(alpha = 0.45f))); inner() })
+                        Pill("Send", enabled = text.isNotBlank() && !shell.connecting) { shell.send(text); text = "" }
+                    }
+                    Spacer(Modifier.height(6.dp))
+                    BasicText(if (shell.connected) "Using ChatGPT plan • ${shell.selectedModel.ifBlank { "choose a model" }}" else "Connect ChatGPT in settings • preview works offline", style = smallText.copy(fontSize = 10.sp, color = accent))
+                }
             }
         }
     }
 }
 
 @Composable
-private fun AmbientWorld(modifier: Modifier = Modifier) {
-    val motion = rememberInfiniteTransition(label = "ambient-world")
-    val t by motion.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(12_000),
-            repeatMode = RepeatMode.Restart,
-        ),
-        label = "ambient-time",
-    )
-
-    Canvas(modifier = modifier) {
-        drawRect(
-            brush = Brush.verticalGradient(
-                listOf(
-                    Color(0xFF03040A),
-                    Color(0xFF0A0920),
-                    Color(0xFF070A12),
-                ),
-            ),
-        )
-
-        val w = size.width
-        val h = size.height
-        val phase = t * 6.283185f
-
-        fun glow(center: Offset, radius: Float, color: Color) {
-            drawCircle(
-                brush = Brush.radialGradient(
-                    colors = listOf(color, Color.Transparent),
-                    center = center,
-                    radius = radius,
-                ),
-                center = center,
-                radius = radius,
-            )
+private fun SettingsPanel(shell: ShellModel, openBrowser: (String) -> Unit, modifier: Modifier) {
+    Column(modifier.fillMaxWidth().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        BasicText("ChatGPT connection", style = smallText.copy(fontSize = 18.sp, color = accent))
+        BasicText(if (shell.connected) shell.account else "Use your eligible ChatGPT plan in Precipice.", style = smallText)
+        if (shell.connecting) Pill("Cancel sign-in", action = shell::cancelSignIn)
+        else Pill(if (shell.connected) "Reconnect with ChatGPT" else "Continue with ChatGPT") { shell.signIn(openBrowser) }
+        BasicText(shell.status, style = smallText, maxLines = 5)
+        if (shell.connected) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Pill("Manage usage") { openBrowser("https://chatgpt.com/#settings/Usage") }
+                Pill("Disconnect", action = shell::disconnect)
+            }
+            BasicText("Model", style = smallText.copy(color = accent))
+            if (shell.models.isEmpty()) Pill("Refresh models", action = shell::refreshModels)
+            shell.models.forEach { model -> Pill((if (shell.selectedModel == model.slug) "● " else "○ ") + model.label) { shell.selectModel(model.slug) } }
         }
-
-        glow(
-            center = Offset(
-                x = w * (0.28f + 0.13f * sin(phase)),
-                y = h * (0.31f + 0.06f * sin(phase * 1.7f)),
-            ),
-            radius = w * 0.62f,
-            color = Color(0xFF19D3FF).copy(alpha = 0.32f),
-        )
-        glow(
-            center = Offset(
-                x = w * (0.74f + 0.10f * sin(phase * 1.31f + 1.2f)),
-                y = h * (0.38f + 0.08f * sin(phase * 1.11f + 2.1f)),
-            ),
-            radius = w * 0.54f,
-            color = Color(0xFFFF38D1).copy(alpha = 0.27f),
-        )
-        glow(
-            center = Offset(
-                x = w * (0.52f + 0.12f * sin(phase * 0.83f + 3.4f)),
-                y = h * (0.57f + 0.05f * sin(phase * 1.23f + 0.4f)),
-            ),
-            radius = w * 0.50f,
-            color = Color(0xFF9CFF52).copy(alpha = 0.20f),
-        )
+        BasicText("Avatar expressions", style = smallText.copy(fontSize = 18.sp, color = accent))
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Pill("Idle") { shell.preview(AvatarState.Idle) }
+            Pill("Listen") { shell.preview(AvatarState.Listening) }
+            Pill("Think") { shell.preview(AvatarState.Thinking) }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Pill("Speak") { shell.preview(AvatarState.Speaking) }
+            Pill("Error") { shell.preview(AvatarState.Error) }
+            Pill("Stop", action = shell::stop)
+        }
+        BasicText("Phone voice speed", style = smallText.copy(color = accent))
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            listOf(1f, 1.2f, 1.5f, 2f).forEach { rate -> Pill((if (shell.ttsRate == rate) "● " else "") + "${rate}×") { shell.setRate(rate) } }
+        }
+        BasicText(shell.speechRoute, style = smallText.copy(fontSize = 11.sp))
+        BasicText("This shell keeps its own conversation. Your existing ChatGPT chats and memories are not imported.", style = smallText.copy(fontSize = 11.sp, color = ink.copy(alpha = 0.7f)))
+        Pill("New conversation", action = shell::clearConversation)
+        if (shell.transcript.isNotBlank()) BasicText("You: ${shell.transcript}", style = smallText)
+        if (shell.response.isNotBlank()) BasicText("Reply: ${shell.response}", style = smallText)
+        BasicText("Precipice 0.2 • private test build", style = smallText.copy(fontSize = 10.sp, color = ink.copy(alpha = 0.4f)))
     }
 }
 
 @Composable
-private fun PrecipiceGlassOrb() {
-    var pressed by remember { mutableStateOf(false) }
-    var awakened by remember { mutableStateOf(false) }
-
-    val breath = rememberInfiniteTransition(label = "orb-breath")
-    val breathScale by breath.animateFloat(
-        initialValue = 0.985f,
-        targetValue = 1.025f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(2400),
-            repeatMode = RepeatMode.Reverse,
-        ),
-        label = "orb-breath-scale",
-    )
-
-    val pressX by animateFloatAsState(
-        targetValue = if (pressed) 1.075f else 1f,
-        animationSpec = spring(dampingRatio = 0.46f, stiffness = 420f),
-        label = "orb-press-x",
-    )
-    val pressY by animateFloatAsState(
-        targetValue = if (pressed) 0.91f else 1f,
-        animationSpec = spring(dampingRatio = 0.46f, stiffness = 420f),
-        label = "orb-press-y",
-    )
-    val awakenedScale by animateFloatAsState(
-        targetValue = if (awakened) 1.045f else 1f,
-        animationSpec = spring(dampingRatio = 0.5f, stiffness = 120f),
-        label = "orb-awakened",
-    )
-
-    // v0.2.5 expresses its glass geometry as a corner radius rather than a Shape.
-    // Half the 228dp diameter makes the AGSL lens itself circular; Compose still clips
-    // the capture to CircleShape below.
-    val glass = remember {
-        BackdropFilter.Glass(
-            blurRadiusIntensity = 1.6f,
-            cornerRadiusDp = 114f,
-            refraction = 0.24f,
-            dispersion = 0.19f,
-            edge = 0.30f,
-            tint = Color.White.copy(alpha = 0.025f),
-        )
+private fun Pill(label: String, enabled: Boolean = true, action: () -> Unit) {
+    Box(Modifier.clip(RoundedCornerShape(18.dp)).background(Color.White.copy(alpha = if (enabled) 0.09f else 0.03f))
+        .border(1.dp, accent.copy(alpha = if (enabled) 0.35f else 0.1f), RoundedCornerShape(18.dp))
+        .clickable(enabled = enabled, role = Role.Button, onClick = action).padding(horizontal = 13.dp, vertical = 9.dp)) {
+        BasicText(label, style = smallText.copy(color = ink.copy(alpha = if (enabled) 1f else 0.35f)))
     }
+}
 
-    Box(
-        modifier = Modifier
-            .size(228.dp)
-            .graphicsLayer {
-                scaleX = breathScale * pressX * awakenedScale
-                scaleY = breathScale * pressY * awakenedScale
-            }
-            .pointerInput(Unit) {
-                detectTapGestures(
-                    onPress = {
-                        pressed = true
-                        tryAwaitRelease()
-                        pressed = false
-                    },
-                    onTap = { awakened = !awakened },
-                )
-            }
-            .glassBorder(
-                shape = CircleShape,
-                borderColor = Color.White.copy(alpha = 0.74f),
-                borderWidth = 1.1.dp,
-                gapSize = 0.12f,
-                softness = 0.045f,
-            )
-            .layeredBackdropCapture(
-                layerName = BackdropLayer,
-                shape = CircleShape,
-                filter = glass,
-            ),
-        contentAlignment = Alignment.Center,
-    ) {
-        Canvas(Modifier.fillMaxSize()) {
-            drawCircle(
-                brush = Brush.radialGradient(
-                    colors = listOf(
-                        Color.White.copy(alpha = if (awakened) 0.10f else 0.06f),
-                        Color.Transparent,
-                    ),
-                    center = Offset(size.width * 0.37f, size.height * 0.30f),
-                    radius = size.minDimension * 0.68f,
-                ),
-            )
+@Composable
+private fun PaperDoll(state: AvatarState, modifier: Modifier) {
+    val context = LocalContext.current
+    val images = remember {
+        fun load(name: String): ImageBitmap = context.assets.open("avatar/$name.webp").use {
+            requireNotNull(android.graphics.BitmapFactory.decodeStream(it)).asImageBitmap()
         }
-
-        Box(
-            modifier = Modifier
-                .size(if (awakened) 22.dp else 14.dp)
-                .background(
-                    color = Color.White.copy(alpha = if (awakened) 0.42f else 0.20f),
-                    shape = CircleShape,
-                ),
-        )
+        listOf(load("base"), load("blink_eyes"), load("speaking_mouth"))
+    }
+    var blinking by remember { mutableStateOf(false) }
+    var mouthOpen by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { while (true) { delay(Random.nextLong(3200, 6700)); blinking = true; delay(135); blinking = false } }
+    LaunchedEffect(state) {
+        mouthOpen = false
+        if (state == AvatarState.Speaking) while (true) { mouthOpen = !mouthOpen; delay(if (mouthOpen) 140 else 100) }
+    }
+    val breath = rememberInfiniteTransition(label = "maid-breath")
+    val scale by breath.animateFloat(0.994f, 1.008f, infiniteRepeatable(tween(2600), RepeatMode.Reverse), label = "breath")
+    val tilt by animateFloatAsState(if (state == AvatarState.Thinking) -2.4f else if (state == AvatarState.Listening) 1.2f else 0f, label = "head-tilt")
+    Canvas(modifier.graphicsLayer { scaleX = scale; scaleY = scale; rotationZ = tilt }) {
+        fun paint(image: ImageBitmap, x: Float, y: Float, w: Float, h: Float) {
+            drawImage(image, dstOffset = IntOffset((size.width * x / 1024).toInt(), (size.height * y / 1536).toInt()),
+                dstSize = IntSize((size.width * w / 1024).toInt().coerceAtLeast(1), (size.height * h / 1536).toInt().coerceAtLeast(1)))
+        }
+        paint(images[0], 0f, 0f, 1024f, 1536f)
+        if (blinking) paint(images[1], 275f, 440f, 470f, 130f)
+        if (mouthOpen) paint(images[2], 420f, 615f, 185f, 90f)
     }
 }
