@@ -80,14 +80,16 @@ internal object Web {
             }
             val code = connection.responseCode
             val elapsedMs = (System.nanoTime() - started) / 1_000_000
+            val requestId = connection.getHeaderField("x-request-id")?.takeIf { it.matches(Regex("[a-zA-Z0-9_-]{1,100}")) }
             val ray = connection.getHeaderField("CF-Ray")?.takeIf { it.matches(Regex("[a-zA-Z0-9-]{1,64}")) }
-            Diagnostics.event("$stage.response", "http=$code elapsed_ms=$elapsedMs" + (ray?.let { " cf_ray=$it" } ?: ""))
+            Diagnostics.event("$stage.response", "http=$code elapsed_ms=$elapsedMs" + (ray?.let { " cf_ray=$it" } ?: "") + (requestId?.let { " request_id=$it" } ?: ""))
             if (code !in 200..299) {
                 // Do not include bodies: token endpoints can contain sensitive fields.
                 throw IllegalStateException(when (code) {
                     401 -> "Connection expired. Reconnect with ChatGPT in settings."
                     403 -> "ChatGPT plan access was not granted for this request."
                     429 -> "ChatGPT usage limit reached. Open Manage usage in settings."
+                    520 -> "ChatGPT model service returned HTTP 520. Sign-in remains connected; retry later or export diagnostics."
                     else -> "Connection returned HTTP $code. Try again or reconnect."
                 })
             }
