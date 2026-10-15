@@ -150,12 +150,13 @@ class ShellModel(app: Application) : AndroidViewModel(app) {
     fun fail(message: String) { state = AvatarState.Error; status = message }
     fun signIn(openBrowser: (String) -> Unit) {
         if (connecting) return
+        Diagnostics.event("auth.ui.start")
         stop(); val attempt = signInGeneration.incrementAndGet(); connecting = true; status = "Finish ChatGPT sign-in in your browser, then return here."
         worker.execute {
             if (signInGeneration.get() != attempt) return@execute
             runCatching { brain.signIn { url -> main.post { if (signInGeneration.get() == attempt) openBrowser(url) } } }.fold(
                 onSuccess = { main.post { if (signInGeneration.get() != attempt) return@post; connecting = false; connected = brain.connected(); account = brain.accountLabel(); status = "ChatGPT connected. Loading available models…"; refreshModels() } },
-                onFailure = { error -> main.post { if (signInGeneration.get() != attempt) return@post; connecting = false; fail(error.message ?: "Sign-in could not complete. Please retry.") } })
+                onFailure = { error -> Diagnostics.event("auth.failed", error.javaClass.simpleName); main.post { if (signInGeneration.get() != attempt) return@post; connecting = false; fail(error.message ?: "Sign-in could not complete. Please retry.") } })
         }
     }
     fun cancelSignIn() { signInGeneration.incrementAndGet(); brain.cancelSignIn(); connecting = false; status = "Sign-in cancelled." }
