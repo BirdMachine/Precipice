@@ -125,6 +125,7 @@ private fun PrecipiceApp(shell: ShellModel, talk: () -> Unit, openBrowser: (Stri
 
 @Composable
 private fun SettingsPanel(shell: ShellModel, openBrowser: (String) -> Unit, modifier: Modifier) {
+    val context = LocalContext.current
     Column(modifier.fillMaxWidth().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         BasicText("ChatGPT connection", style = smallText.copy(fontSize = 18.sp, color = accent))
         BasicText(if (shell.connected) shell.account else "Use your eligible ChatGPT plan in Precipice.", style = smallText)
@@ -139,6 +140,16 @@ private fun SettingsPanel(shell: ShellModel, openBrowser: (String) -> Unit, modi
             BasicText("Model", style = smallText.copy(color = accent))
             if (shell.models.isEmpty()) Pill("Refresh models", action = shell::refreshModels)
             shell.models.forEach { model -> Pill((if (shell.selectedModel == model.slug) "● " else "○ ") + model.label) { shell.selectModel(model.slug) } }
+        }
+        BasicText("Diagnostics", style = smallText.copy(fontSize = 18.sp, color = accent))
+        BasicText("Share a sanitized event log to help diagnose sign-in. Codes, tokens and chat text are never logged.", style = smallText)
+        Pill("Export debug log") {
+            val send = Intent(Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(Intent.EXTRA_SUBJECT, "Precipice diagnostic log")
+                putExtra(Intent.EXTRA_TEXT, Diagnostics.export())
+            }
+            context.startActivity(Intent.createChooser(send, "Share Precipice diagnostics"))
         }
         BasicText("Avatar expressions", style = smallText.copy(fontSize = 18.sp, color = accent))
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
