@@ -1,0 +1,10 @@
+{
+  "format": "precipice-paper-doll-v1",
+  "canvas": [1024, 1536],
+  "base": "base.webp",
+  "layers": [
+    {"id": "blink_eyes", "file": "blink_eyes.webp", "rect": [275, 440, 470, 130]},
+    {"id": "speaking_mouth", "file": "speaking_mouth.webp", "rect": [420, 615, 185, 90]}
+  ],
+  "note": "Static bust plus registered eye and mouth patches. First cutout pack, not a full Live2D rig."
+}
