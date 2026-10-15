@@ -70,6 +70,16 @@ class ShellModel(app: Application) : AndroidViewModel(app) {
 
     fun toggleAvatar() { showMaid = !showMaid; prefs.edit().putBoolean("maid", showMaid).apply() }
     fun setRate(value: Float) { ttsRate = value; tts?.setSpeechRate(value); prefs.edit().putFloat("tts_rate", value).apply() }
+    fun setManualModel(slug: String) {
+        val clean = slug.trim()
+        if (!Regex("[A-Za-z0-9][A-Za-z0-9._:-]{0,99}").matches(clean)) {
+            status = "Enter a valid model ID (letters, digits, dot, dash, underscore or colon)."
+            return
+        }
+        Diagnostics.event("models.manual.selected")
+        selectModel(clean)
+        status = "Manual model selected • send a short test message to verify access."
+    }
     fun selectModel(slug: String) {
         stop(); selectedModel = slug; prefs.edit().putString("model", slug).apply()
     }
@@ -172,7 +182,7 @@ class ShellModel(app: Application) : AndroidViewModel(app) {
                     models = choices
                     modelLoadError = ""
                     Diagnostics.event("models.refresh.success", "count=${choices.size}")
-                    if (choices.none { it.slug == selectedModel }) {
+                    if (selectedModel.isBlank() && choices.isNotEmpty()) {
                         selectedModel = choices.firstOrNull()?.slug.orEmpty(); prefs.edit().putString("model", selectedModel).apply()
                     }
                     status = if (choices.isEmpty()) "No models are available for this ChatGPT connection." else "ChatGPT connected • ready to talk"
