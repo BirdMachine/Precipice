@@ -108,7 +108,7 @@ class ChatGptConnection(private val store: CredentialStore) {
     fun connected(): Boolean = store.read().optString("access_token").isNotBlank()
     fun cancelSignIn() {
         synchronized(credentialLock) { authorizationEpoch.incrementAndGet() }
-        listener?.close(); listener = null
+        Diagnostics.event("auth.cancel"); listener?.close(); listener = null
     }
     private fun saveIfCurrent(epoch: Int, record: JSONObject) {
         synchronized(credentialLock) {
@@ -125,7 +125,9 @@ class ChatGptConnection(private val store: CredentialStore) {
         old.put("host_id", host); saveIfCurrent(epoch, old)
         val priorClient = old.optString("client_id")
         val state = randomValue(); val nonce = randomValue(); val verifier = randomValue()
+        Diagnostics.event("auth.listener.start")
         val socket = ServerSocket(0, 4, InetAddress.getByName("127.0.0.1"))
+        Diagnostics.event("auth.listener.bound", "port=${socket.localPort}")
         listener = socket
         socket.soTimeout = 180_000
         val redirect = "http://127.0.0.1:${socket.localPort}/auth/callback"
@@ -138,12 +140,14 @@ class ChatGptConnection(private val store: CredentialStore) {
             "code_challenge" to base64url(MessageDigest.getInstance("SHA-256").digest(verifier.toByteArray(Charsets.US_ASCII))))
         if (priorClient.isBlank()) fields["agent_name_hint"] = "Precipice"
         // Keep authorization URLs out of diagnostics: they include single-use state.
+        Diagnostics.event("auth.browser.launch")
         openBrowser("$issuer/api/accounts/authorize?" + Web.form(fields))
         try {
             val deadline = System.currentTimeMillis() + 180_000
             while (System.currentTimeMillis() < deadline) {
                 socket.soTimeout = (deadline - System.currentTimeMillis()).coerceAtLeast(1).toInt()
                 socket.accept().use { client ->
+                    Diagnostics.event("auth.callback.accepted")
                     client.soTimeout = 3000
                     val line = client.getInputStream().bufferedReader().readLine() ?: ""
                     val parts = line.split(' ')
@@ -156,7 +160,8 @@ class ChatGptConnection(private val store: CredentialStore) {
                         write("HTTP/1.1 ${if (valid) "200 OK" else "400 Bad Request"}\r\nContent-Type: text/plain; charset=utf-8\r\nCache-Control: no-store\r\nContent-Length: ${bytes.size}\r\nConnection: close\r\n\r\n".toByteArray())
                         write(bytes); flush()
                     }
-                    if (!valid) return@use
+                    if (!valid) { Diagnostics.event("auth.callback.rejected", "method/path/state validation"); return@use }
+                    Diagnostics.event("auth.callback.validated")
                     require(uri.getQueryParameter("error") == null) { "ChatGPT sign-in was declined. Your existing connection is unchanged." }
                     val clientId = uri.getQueryParameter("client_id") ?: priorClient
                     require(clientId.isNotBlank() && clientId != "dynamic_agent_client") { "Sign-in did not return a client registration." }
@@ -164,10 +169,12 @@ class ChatGptConnection(private val store: CredentialStore) {
                     // Save registration even if code exchange fails, for safe reauthorization.
                     old.put("client_id", clientId); saveIfCurrent(epoch, old)
                     val code = uri.getQueryParameter("code") ?: error("Sign-in did not return a code.")
+                    Diagnostics.event("auth.token.exchange.start")
                     val token = JSONObject(Web.request(tokenEndpoint, Web.form(mapOf(
                         "grant_type" to "authorization_code", "client_id" to clientId, "code" to code,
                         "code_verifier" to verifier, "redirect_uri" to redirect, "resource" to resource)),
                         contentType = "application/x-www-form-urlencoded"))
+                    Diagnostics.event("auth.token.exchange.success")
                     val identity = validateIdentity(token.getString("id_token"), clientId, nonce)
                     val subject = identity.getString("sub")
                     require(old.optString("subject").isBlank() || old.getString("subject") == subject) { "This registration belongs to a different account." }
@@ -175,11 +182,13 @@ class ChatGptConnection(private val store: CredentialStore) {
                     saveTokens(old, token)
                     old.put("email", identity.optString("email", "Connected ChatGPT account"))
                     old.put("subject", subject); old.put("client_id", clientId); saveIfCurrent(epoch, old)
+                    Diagnostics.event("auth.connected")
                     return
                 }
             }
+            Diagnostics.event("auth.callback.timeout")
             error("ChatGPT sign-in timed out. Tap Continue with ChatGPT to retry.")
-        } finally { socket.close(); if (listener === socket) listener = null }
+        } finally { socket.close(); if (listener === socket) listener = null; Diagnostics.event("auth.listener.closed") }
     }
 
     private fun validateIdentity(jwt: String, clientId: String, nonce: String?): JSONObject {
