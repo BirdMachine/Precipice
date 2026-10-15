@@ -63,6 +63,14 @@ internal object Web {
         connection.readTimeout = 120_000
         connection.setRequestProperty("Accept", if (stream != null) "text/event-stream" else "application/json")
         if (token != null) connection.setRequestProperty("Authorization", "Bearer $token")
+        val stage = when (URL(url).path) {
+            "/v1/models" -> "models.discovery"
+            "/v1/responses" -> "reply.request"
+            "/api/accounts/oauth/token" -> "auth.token.http"
+            else -> "http.support"
+        }
+        val started = System.nanoTime()
+        Diagnostics.event("$stage.start")
         try {
             if (body != null) {
                 connection.requestMethod = "POST"
@@ -71,6 +79,9 @@ internal object Web {
                 connection.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
             }
             val code = connection.responseCode
+            val elapsedMs = (System.nanoTime() - started) / 1_000_000
+            val ray = connection.getHeaderField("CF-Ray")?.takeIf { it.matches(Regex("[a-zA-Z0-9-]{1,64}")) }
+            Diagnostics.event("$stage.response", "http=$code elapsed_ms=$elapsedMs" + (ray?.let { " cf_ray=$it" } ?: ""))
             if (code !in 200..299) {
                 // Do not include bodies: token endpoints can contain sensitive fields.
                 throw IllegalStateException(when (code) {
@@ -81,6 +92,9 @@ internal object Web {
                 })
             }
             return connection.inputStream.bufferedReader().use { if (stream != null) stream(it) else it.readText() }
+        } catch (error: Exception) {
+            Diagnostics.event("$stage.failed", error.javaClass.simpleName)
+            throw error
         } finally { connection.disconnect() }
     }
     fun form(values: Map<String, String>) = values.entries.joinToString("&") {
@@ -248,7 +262,9 @@ class ChatGptConnection(private val store: CredentialStore) {
     }
 
     fun models(): List<AvailableModel> {
-        val result = JSONObject(Web.request("$resource/models", token = accessToken())).getJSONArray("models")
+        val json = JSONObject(Web.request("$resource/models", token = accessToken()))
+        val result = json.optJSONArray("models") ?: json.optJSONArray("data")
+            ?: throw IllegalStateException("Model discovery returned an unexpected response format.")
         return (0 until result.length()).map { result.getJSONObject(it) }.filter { it.optString("visibility") == "list" }
             .map { AvailableModel(it.getString("slug"), it.getString("display_name")) }
     }
