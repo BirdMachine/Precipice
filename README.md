@@ -25,3 +25,7 @@ gradle :app:testDebugUnitTest :app:assembleDebug :app:lintDebug
 An installable build requires the persistent test key; otherwise compilation produces an unsigned APK. See [signing setup](docs/SIGNING.md). CI verifies the pinned public certificate before uploading an APK and refuses to publish when the private signing secret is absent. Never commit the private key.
 
 The old September CI debug certificate differs. A phone with that old build may need one migration uninstall; APKs using the new persistent key can update in place afterward.
+
+## Auth troubleshooting
+
+Settings → **Export debug log** shares a bounded, sanitized trace of the loopback OAuth callback lifecycle. Retry sign-in once, then export the trace if the browser times out. The export excludes OAuth codes, tokens, state values, URLs and chat messages.
