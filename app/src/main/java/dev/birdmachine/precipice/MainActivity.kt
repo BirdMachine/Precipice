@@ -126,6 +126,7 @@ private fun PrecipiceApp(shell: ShellModel, talk: () -> Unit, openBrowser: (Stri
 @Composable
 private fun SettingsPanel(shell: ShellModel, openBrowser: (String) -> Unit, modifier: Modifier) {
     val context = LocalContext.current
+    var manualModel by remember { mutableStateOf(shell.selectedModel) }
     Column(modifier.fillMaxWidth().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         BasicText("ChatGPT connection", style = smallText.copy(fontSize = 18.sp, color = accent))
         BasicText(if (shell.connected) shell.account else "Use your eligible ChatGPT plan in Precipice.", style = smallText)
@@ -138,7 +139,13 @@ private fun SettingsPanel(shell: ShellModel, openBrowser: (String) -> Unit, modi
                 Pill("Disconnect", action = shell::disconnect)
             }
             BasicText("Model", style = smallText.copy(color = accent))
-            if (shell.models.isEmpty()) Pill("Refresh models", action = shell::refreshModels)
+            Pill("Refresh models", action = shell::refreshModels)
+            if (shell.modelLoadError.isNotBlank()) BasicText("Discovery unavailable: ${shell.modelLoadError}", style = smallText.copy(color = Color(0xFFFFC1D5)), maxLines = 3)
+            BasicText("Manual model ID (experimental fallback)", style = smallText)
+            BasicTextField(manualModel, { manualModel = it }, singleLine = true, textStyle = smallText,
+                modifier = Modifier.fillMaxWidth().background(Color.White.copy(alpha = 0.1f), RoundedCornerShape(12.dp)).padding(10.dp))
+            Pill("Use model ID") { shell.setManualModel(manualModel) }
+            BasicText("Current: ${shell.selectedModel.ifBlank { "none" }}. A model ID is not proof of access until a test reply succeeds.", style = smallText.copy(fontSize = 11.sp))
             shell.models.forEach { model -> Pill((if (shell.selectedModel == model.slug) "● " else "○ ") + model.label) { shell.selectModel(model.slug) } }
         }
         BasicText("Diagnostics", style = smallText.copy(fontSize = 18.sp, color = accent))
