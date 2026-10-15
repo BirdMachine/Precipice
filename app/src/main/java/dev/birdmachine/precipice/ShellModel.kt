@@ -44,6 +44,7 @@ class ShellModel(app: Application) : AndroidViewModel(app) {
     var connected by mutableStateOf(runCatching { brain.connected() }.getOrDefault(false)); private set
     var connecting by mutableStateOf(false); private set
     var models by mutableStateOf(listOf<AvailableModel>()); private set
+    var modelLoadError by mutableStateOf(""); private set
     var selectedModel by mutableStateOf(prefs.getString("model", "") ?: ""); private set
     var showMaid by mutableStateOf(prefs.getBoolean("maid", true)); private set
     var ttsRate by mutableStateOf(prefs.getFloat("tts_rate", 1.2f)); private set
@@ -161,17 +162,26 @@ class ShellModel(app: Application) : AndroidViewModel(app) {
     }
     fun cancelSignIn() { signInGeneration.incrementAndGet(); brain.cancelSignIn(); connecting = false; status = "Sign-in cancelled." }
     fun refreshModels() {
+        if (!connected) return
+        modelLoadError = ""
+        Diagnostics.event("models.refresh.start")
         val attempt = generation.get()
         worker.execute {
             runCatching { brain.models() }.fold(
                 onSuccess = { choices -> main.post { if (generation.get() == attempt) {
                     models = choices
+                    modelLoadError = ""
+                    Diagnostics.event("models.refresh.success", "count=${choices.size}")
                     if (choices.none { it.slug == selectedModel }) {
                         selectedModel = choices.firstOrNull()?.slug.orEmpty(); prefs.edit().putString("model", selectedModel).apply()
                     }
                     status = if (choices.isEmpty()) "No models are available for this ChatGPT connection." else "ChatGPT connected • ready to talk"
                 } } },
-                onFailure = { error -> main.post { if (generation.get() == attempt) fail(error.message ?: "Unable to load models.") } })
+                onFailure = { error -> main.post { if (generation.get() == attempt) {
+                    Diagnostics.event("models.refresh.failed", error.javaClass.simpleName)
+                    modelLoadError = error.message ?: "Unable to load models."
+                    status = "ChatGPT connected • model discovery failed. Tap Refresh models to retry."
+                } } })
         }
     }
     fun disconnect() {
